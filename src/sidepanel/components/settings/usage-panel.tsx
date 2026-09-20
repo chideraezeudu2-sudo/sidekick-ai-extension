@@ -75,7 +75,7 @@ export function UsagePanel() {
       <div>
         <p className="text-sm font-medium">{usage.planLabel} plan</p>
         <p className="text-xs text-muted-foreground">
-          {usage.used} of {usage.limit ?? '\u221E'} actions used this period
+          {usage.used} of {usage.limit ?? '\u221E'} tasks used this period
         </p>
       </div>
       {availableUpgrades.length > 0 && (

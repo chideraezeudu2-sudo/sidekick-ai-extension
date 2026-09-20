@@ -18,7 +18,7 @@ export function ApiKeyInput({ value, onChange }: ApiKeyInputProps) {
         Your own OpenRouter API key (optional)
       </label>
       <p className="text-xs text-muted-foreground -mt-1">
-        Sidekick AI works without this using your plan's included actions. Add your
+        Sidekick AI works without this using your plan's included tasks. Add your
         own key to skip plan limits entirely.
       </p>
       <div className="relative">

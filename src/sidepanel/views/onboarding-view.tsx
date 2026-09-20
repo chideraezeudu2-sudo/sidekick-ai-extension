@@ -27,7 +27,7 @@ export function OnboardingView() {
           An AI buddy that flies around the page and clicks things for you.
         </p>
         <p className="text-xs text-muted-foreground text-center">
-          You get 10 free actions to try it — no account or API key needed. Add your
+          You get 10 free tasks to try it — no account or API key needed. Add your
           own OpenRouter key later in Settings for unlimited use without upgrading.
         </p>
       </div>
