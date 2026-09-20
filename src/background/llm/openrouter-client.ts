@@ -30,6 +30,67 @@ async function buildBackendHeaders(settings: Settings): Promise<Record<string, s
   return headers
 }
 
+/** Pause before each retry of a rate-limited request, in ms; index = attempt number */
+const RATE_LIMIT_BACKOFF_MS = [2000, 8000]
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/**
+ * POST to the backend, pausing and retrying when the provider rate limits us.
+ *
+ * The shared provider key allows only a few requests per minute, while a single
+ * agent task needs one round trip per step, so a 429 partway through a task is
+ * expected rather than exceptional. Retrying here keeps the task alive instead
+ * of failing the user's command.
+ *
+ * A plan-limit 429 is returned untouched: that is the user's own quota, and
+ * waiting will not clear it.
+ */
+async function fetchWithRateLimitRetry(
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, init)
+    if (response.status !== 429) return response
+
+    let code = ''
+    try {
+      code = (await response.clone().json())?.error?.code ?? ''
+    } catch {
+      // non-JSON error body; fall through to the generic retry
+    }
+    if (code === 'PLAN_LIMIT_REACHED') return response
+    if (attempt >= RATE_LIMIT_BACKOFF_MS.length) return response
+
+    const retryAfter = Number(response.headers.get('retry-after'))
+    const waitMs =
+      Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 15000)
+        : RATE_LIMIT_BACKOFF_MS[attempt]
+
+    console.warn(`[llm] provider rate limited; retrying in ${waitMs}ms (attempt ${attempt + 1})`)
+    await sleep(waitMs, signal)
+  }
+}
+
 /** Send messages to the LLM via Sidekick AI's backend, with optional tool definitions */
 export async function callLLM(
   messages: Message[],
@@ -50,12 +111,15 @@ export async function callLLM(
   }
 
   try {
-    response = await fetch(BACKEND_CHAT_URL, {
-      method: 'POST',
-      headers: await buildBackendHeaders(settings),
-      body: JSON.stringify(body),
-      signal,
-    })
+    response = await fetchWithRateLimitRetry(
+      BACKEND_CHAT_URL,
+      {
+        method: 'POST',
+        headers: await buildBackendHeaders(settings),
+        body: JSON.stringify(body),
+      },
+      signal
+    )
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
     throw new Error('Network error. Check your connection.')
@@ -184,12 +248,15 @@ export async function* callLLMStream(
 
   let response: Response
   try {
-    response = await fetch(BACKEND_CHAT_URL, {
-      method: 'POST',
-      headers: await buildBackendHeaders(settings),
-      body: JSON.stringify(body),
-      signal,
-    })
+    response = await fetchWithRateLimitRetry(
+      BACKEND_CHAT_URL,
+      {
+        method: 'POST',
+        headers: await buildBackendHeaders(settings),
+        body: JSON.stringify(body),
+      },
+      signal
+    )
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return
     yield { type: 'error', error: 'Network error. Check your connection.' }
