@@ -31,7 +31,14 @@ async function buildBackendHeaders(settings: Settings): Promise<Record<string, s
 }
 
 /** Pause before each retry of a rate-limited request, in ms; index = attempt number */
-const RATE_LIMIT_BACKOFF_MS = [2000, 8000]
+const RATE_LIMIT_BACKOFF_MS = [5000, 15000]
+
+/**
+ * Longest we will honour a server-supplied Retry-After. The backend reports the
+ * provider's token-refill time, which can run to ~20s, so clamp above that or we
+ * would retry early and earn another 429.
+ */
+const MAX_RETRY_WAIT_MS = 25000
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -83,7 +90,7 @@ async function fetchWithRateLimitRetry(
     const retryAfter = Number(response.headers.get('retry-after'))
     const waitMs =
       Number.isFinite(retryAfter) && retryAfter > 0
-        ? Math.min(retryAfter * 1000, 15000)
+        ? Math.min(retryAfter * 1000, MAX_RETRY_WAIT_MS)
         : RATE_LIMIT_BACKOFF_MS[attempt]
 
     console.warn(`[llm] provider rate limited; retrying in ${waitMs}ms (attempt ${attempt + 1})`)
